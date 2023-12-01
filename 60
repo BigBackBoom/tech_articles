@@ -1,0 +1,105 @@
+---
+title: "Gradle プラグイン作成のすゝめ"
+emoji: "🎄"
+type: "tech" # tech: 技術記事 / idea: アイデア
+topics: ["Kotlin", "Gradle", "Plugin"]
+published: false
+---
+
+## はじめに
+Androidでは長らくGradleというビルドツールが使われています。
+
+2015年より以前はGradleの設定記述はGroovyと言われる言語のみが使われており、その独自性から「なんとなく」で書いてしまうことが多かったと思います。
+
+しかし現在は、Androidの正式採用言語のKotlinのKTSが使えるようになり、慣れ親しんだKotlinの構文を使いつつGradleの設定を記述することができるようになりました。
+
+## 問題点
+KTSが利用できるようになってから、Gradleの記述はある程度わかりやすいものになりましたが、それでも解決できていない問題があります。それが、ビルドスクリプトの冗長性です。
+
+KTSになってなお、Gradleの記述がやはり分かりにくいこと、そしてAndroidのマルチモジュール化により共通の設定を各モジュールに設定したいなどのニーズから、同様の記述をモジュールごとに何度もするということが増えています。
+
+DRY（`Do not Repeat Yourself`)の原則の観点からも、何度も同じ記述をするというのはスマートとはいえません。
+
+本記事では、繰り返し記述を避けるための方法として、Gradleのプラグインを作成の仕方を解説したいと思います
+
+## 準備
+
+### プラグイン用プロジェクトの設置
+
+#### 別プロジェクトの設置について
+今回は[nowinandroid](https://github.com/android/nowinandroid)でも利用されている方法の、`build-logic`という別プロジェクトを設置する方法を利用します。
+
+こちらの方法は、「別プロジェクト」という言葉を使った通り、Androidのプロジェクトに完全独立した`build-logic`というプロジェクトを設置する方法となっています。
+
+この方法は以下のようなメリット・デメリットが存在します
+
+**メリット**
+- 通常のKotlinのコードが利用できるため、Kotlin DSLよりも直感的。
+- コードに変更を加えても、`buildSrc`などと違い、ビルドキャッシュが使われる。
+
+ **デメリット**
+- build-logic内部で定義したメソッドのコードを、Androidプロジェクト側では使えない。
+- クリーンビルドが遅くなる  
+
+※ ビルド速度については[こちらの記事](https://proandroiddev.com/stop-using-gradle-buildsrc-use-composite-builds-instead-3c38ac7a2ab3)をご一読ください。
+
+
+### 実装
+適当なAndroidプロジェクトを作成して、プロジェクト直下に以下のようなディレクトリを設置してください
+
+```
+project/
+  ├ build-logic/
+  │   ├ convention/
+  │   ├ gradle.properties
+  │   └ settings.gradle.kts
+  ├ gradle/
+  │   ├ wrapper/
+  │   └ libs.versions.toml // なければ作成
+  └ settings.gradle.kts
+```
+
+
+**project/build-logic/settings.gradle.kts**
+```kts 
+dependencyResolutionManagement {
+  versionCatalogs {
+    create("libs") {
+      from(files("../gradle/libs.versions.toml"))
+    }
+  }
+}
+
+rootProject.name = "build-logic"
+include(":convention")
+```
+
+**project/settings.gradle.kts**
+
+- `includeBuild`を追加して、build-logicをプロジェクトに含めます。
+```kts
+pluginManagement {
+  includeBuild("build-logic")
+}
+```
+## Pluginの実装
+
+- 以下のような構成で、ファイルを作成する。
+
+```kts
+project/
+  ├ build-logic/
+  │   ├ convention/
+  │   │   ├ src/main/
+  │   │   │ ├ kotlin/
+  │   │   │ │  ├ com/bigbackboom/test/build/logic 
+  │   │   │ │  │  └ AndroidSetting.kt                  // 本項で解説
+  │   │   │ │  ├ AndroidApplicationConventionPlugin.kt // 本項で解説
+  │   │   │ │  └ AndroidLibraryConventionPlugin.kt     // 本項で解説
+  │   │   └ └ build.gradle.kts                         // 本項で解説
+  │   ├ gradle.properties
+  │   └ settings.gradle.kts
+```
+###
+ 
+
